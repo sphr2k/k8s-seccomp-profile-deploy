@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: seccomp-profile-deploy
+  labels:
+    app: seccomp-profile-deploy
+spec:
+  selector:
+    matchLabels:
+      app: seccomp-profile-deploy
+  template:
+    metadata:
+      labels:
+        app: seccomp-profile-deploy
+    spec:
+      initContainers:
+        - name: seccomp-profile-deploy
+          image: alpine:latest
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              #!/usr/bin/env bash
+
+              set -eu
+
+              src_dir="/tmp/seccomp-profiles-src"
+              dst_dir="/tmp/seccomp-profiles-dst"
+
+              mkdir -p "$dst_dir"
+
+              for file in "$src_dir"/*.json; do
+                  if cp "$file" "$dst_dir"; then
+                      echo "Copied seccomp profile: $(basename "$file")"
+                  else
+                      echo "Failed to copy seccomp profile: $(basename "$file")"
+                      exit 1
+                  fi
+              done
+          securityContext:
+            seccompProfile:
+              type: RuntimeDefault
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            runAsUser: 0
+            runAsGroup: 0
+          volumeMounts:
+            - mountPath: /tmp/seccomp-profiles-src
+              name: seccomp-profiles-src
+            - mountPath: /tmp/seccomp-profiles-dst
+              name: seccomp-profiles-dst
+      containers:
+        - name: sleep
+          image: alpine:latest
+          command: ["sleep"]
+          args: ["infinity"]
+          securityContext:
+            seccompProfile:
+              type: RuntimeDefault
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            runAsNonRoot: true
+            runAsUser: 10001
+      terminationGracePeriodSeconds: 0
+      volumes:
+        - name: seccomp-profiles-src
+          configMap:
+            name: seccomp-profiles
+        - name: seccomp-profiles-dst
+          hostPath:
+            path: /var/lib/kubelet/seccomp
